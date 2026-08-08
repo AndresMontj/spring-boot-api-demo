@@ -1,0 +1,317 @@
+# Default configuration (applies to all profiles, can be overridden)
+debug: true
+spring:
+  application:
+    name: spring-boot-api-demo
+  # Active profile can be overridden by SPRING_PROFILES_ACTIVE environment variable
+  profiles:
+    active: dev
+  datasource:
+    # H2 for development, can be overridden for other databases
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+    # For PostgreSQL (uncomment and configure as needed):
+    # url: jdbc:postgresql://localhost:5432/demo_db
+    # driver-class-name: org.postgresql.Driver
+    # username: ${POSTGRES_USER:sa}
+    # password: ${POSTGRES_PASSWORD:password}
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      settings:
+        web-allow-others: true
+  jpa:
+    database-platform: ${SPRING_DATASOURCE_PLATFORM:org.hibernate.dialect.H2Dialect}
+    hibernate:
+      ddl-auto: update
+      show-sql: true
+      properties:
+        hibernate:
+          format_sql: true
+  # Security configuration
+  security:
+    oauth2:
+      client:
+        enabled: false
+        # OAuth2 client configuration (enabled/disabled per profile below)
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - openid
+              - profile
+              - email
+          github:
+            client-id: ${GITHUB_CLIENT_ID}
+            client-secret: ${GITHUB_CLIENT_SECRET}
+            scope:
+              - read:user
+              - user:email
+          okta:
+            client-id: ${OKTA_CLIENT_ID}
+            client-secret: ${OKTA_CLIENT_SECRET}
+            scope:
+              - openid
+              - profile
+              - email
+        provider:
+          okta:
+            issuer-uri: ${OKTA_ISSUER_URI:https://dev-123456.okta.com/oauth2/default}
+
+# Resilience4j Configuration
+resilience4j:
+  circuitbreaker:
+    instances:
+      externalService:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - java.lang.Exception
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+  timelimiter:
+    instances:
+      externalService:
+        timeoutDuration: 2s
+        cancelRunningFuture: true
+  retry:
+    instances:
+      externalService:
+        maxAttempts: 3
+        waitDuration: 1s
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        retryExceptions:
+          - java.lang.Exception
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+  ratelimiter:
+    instances:
+      externalService:
+        limitForPeriod: 2
+        limitRefreshPeriod: 1s
+        timeoutDuration: 0s
+
+# Server Configuration
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: /${SERVER_SERVLET_CONTEXT_PATH:api}
+  # Production server settings
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 10
+    connections:
+      accept-count: 100
+      max: 400
+      min-spare: 10
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,circuitbreakers,ratelimiters,logfile
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+    circuitbreakers:
+      enabled: true
+    ratelimiters:
+      enabled: true
+    logfile:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      slo:
+        http:
+          server:
+            requests: 10ms, 50ms, 100ms, 250ms, 500ms, 1000ms, 2500ms, 5000ms, 10000ms
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:VbUY8PR/pZFOIHRLd0Fvm2OlmmLGgPN9MjtdBM/mJls=}
+  expiration: ${JWT_EXPIRATION:86400000} # 24 hours in milliseconds
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.example.demo: DEBUG
+    org.springframework.web: INFO
+    org.hibernate: INFO
+    org.hibernate.type: TRACE  # For SQL parameter logging (use cautiously in prod)
+    org.springframework.security: DEBUG  # Enable Spring Security logging
+    org.springframework.security.authentication: TRACE
+    org.springframework.security.web: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
+
+# Swagger/OpenAPI Configuration
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+  packages-to-scan: com.example.demo.controller
+  # Show actuator endpoints in Swagger
+  add-actuator-properties: true
+
+# Test Configuration (activated when test profile is active)
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1  # Removed DB_CLOSE_ON_EXIT=FALSE for tests
+  jpa:
+    hibernate:
+      ddl-auto: create-drop  # Create schema for tests, drop after
+  # Disable OAuth2 and other external integrations in test
+  security:
+    oauth2:
+      client:
+        enabled: false
+        registration:
+          google:
+            client-id: test
+            client-secret: test
+          github:
+            client-id: test
+            client-secret: test
+          okta:
+            client-id: test
+            client-secret: test
+        provider:
+          okta:
+            issuer-uri: http://localhost:8080/dummy  # Dummy URI to prevent network calls during test
+
+# Production Configuration
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    # Use environment variables for production database
+    url: ${JDBC_URL:jdbc:postgresql://localhost:5432/demo_db}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate  # Don't change schema in production
+      show-sql: false
+  h2:
+    console:
+      enabled: false  # Disable H2 console in production
+      path: /h2-console
+  # More secure cookie settings
+  session:
+    cookie:
+      http-only: true
+      secure: true
+  # Increase resilience timeouts for production
+  resilience4j:
+    circuitbreaker:
+      instances:
+        externalService:
+          waitDurationInOpenState: 30s  # Increased from 10s
+          permittedNumberOfCallsInHalfOpenState: 5  # Increased from 3
+    ratelimiter:
+      instances:
+        externalService:
+          limitForPeriod: 10  # Increased from 2
+          limitRefreshPeriod: 60s  # Increased from 1s
+  security:
+    oauth2:
+      client:
+        enabled: true  # Enable OAuth2 client in production
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - openid
+              - profile
+              - email
+          github:
+            client-id: ${GITHUB_CLIENT_ID}
+            client-secret: ${GITHUB_CLIENT_SECRET}
+            scope:
+              - read:user
+              - user:email
+          okta:
+            client-id: ${OKTA_CLIENT_ID}
+            client-secret: ${OKTA_CLIENT_SECRET}
+            scope:
+              - openid
+              - profile
+              - email
+        provider:
+          okta:
+            issuer-uri: ${OKTA_ISSUER_URI:https://dev-123456.okta.com/oauth2/default}
+
+# Development Configuration
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  # Enable H2 console and devtools
+  devtools:
+    livereload:
+      enabled: true
+    restart:
+      enabled: true
+  # More verbose logging in development
+  logging:
+    level:
+      org.springframework.web: DEBUG
+      org.hibernate.type: TRACE
+  # OAuth2 client settings for development (can be enabled by setting spring.security.oauth2.client.enabled=true)
+  security:
+    oauth2:
+      client:
+        enabled: false  # Keep disabled by default in dev
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - openid
+              - profile
+              - email
+          github:
+            client-id: ${GITHUB_CLIENT_ID}
+            client-secret: ${GITHUB_CLIENT_SECRET}
+            scope:
+              - read:user
+              - user:email
+          okta:
+            client-id: ${OKTA_CLIENT_ID}
+            client-secret: ${OKTA_CLIENT_SECRET}
+            scope:
+              - openid
+              - profile
+              - email
+        provider:
+          okta:
+            issuer-uri: ${OKTA_ISSUER_URI:https://dev-123456.okta.com/oauth2/default}
