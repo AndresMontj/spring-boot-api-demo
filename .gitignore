@@ -21,6 +21,8 @@ nbdist/
 .nb-gradle/
 # VS Code
 .vscode/
+# Claude Code local settings
+.claude/
 # Spring Boot
 application*.yml
 application*.yaml
