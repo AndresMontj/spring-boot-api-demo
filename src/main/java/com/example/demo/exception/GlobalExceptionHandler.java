@@ -1,35 +1,35 @@
 package com.example.demo.exception;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import com.example.demo.dto.ErrorResponse;
+import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
-import org.springframework.lang.Nullable;
-import org.springframework.validation.BindException;
-import org.springframework.validation.FieldError;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * Centralized exception handling that always renders errors as a single,
+ * consistent {@link ErrorResponse} JSON shape:
+ * {@code { status, errorCode, message, timestamp, details } }
+ */
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     /**
-     * Handle validation failures
+     * Handle @Valid @RequestBody validation failures.
      */
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
@@ -38,119 +38,126 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             HttpStatusCode status,
             WebRequest request) {
 
-        Map<String, List<String>> errors = new HashMap<>();
-        List<String> errorMessages = ex.getBindingResult()
+        List<String> details = ex.getBindingResult()
                 .getFieldErrors()
                 .stream()
-                .map(FieldError::getDefaultMessage)
+                .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
                 .collect(Collectors.toList());
 
-        errors.put("validationErrors", errorMessages);
+        ErrorResponse errorResponse = buildErrorResponse(
+                HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Validation failed", details);
 
-        ApiError apiError = new ApiError(
-                LocalDateTime.now(),
-                "Validation Failed",
-                ex.getMessage(),
-                errors,
-                request.getDescription(false));
-
-        return handleExceptionInternal(ex, apiError, headers, HttpStatus.BAD_REQUEST, request);
+        return handleExceptionInternal(ex, errorResponse, headers, status, request);
     }
 
     /**
-     * Handle BindException
+     * Handle constraint violations on path variables / request params (e.g. @Validated).
      */
-    protected ResponseEntity<Object> handleBindException(
-            BindException ex,
-            HttpHeaders headers,
-            HttpStatus status,
-            WebRequest request) {
-
-        Map<String, List<String>> errors = new HashMap<>();
-        List<String> errorMessages = ex.getBindingResult()
-                .getFieldErrors()
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<Object> handleConstraintViolation(ConstraintViolationException ex) {
+        List<String> details = ex.getConstraintViolations()
                 .stream()
-                .map(FieldError::getDefaultMessage)
+                .map(violation -> violation.getPropertyPath() + ": " + violation.getMessage())
                 .collect(Collectors.toList());
 
-        errors.put("validationErrors", errorMessages);
+        ErrorResponse errorResponse = buildErrorResponse(
+                HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Validation failed", details);
 
-        ApiError apiError = new ApiError(
-                LocalDateTime.now(),
-                "Validation Failed",
-                ex.getMessage(),
-                errors,
-                request.getDescription(false));
-
-        return handleExceptionInternal(ex, apiError, headers, HttpStatus.BAD_REQUEST, request);
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
 
     /**
-     * Handle custom exceptions
+     * Handle exceptions that already carry their own HTTP status (e.g. UserNotFoundException).
+     * Registered explicitly so it takes precedence over the generic RuntimeException handling
+     * below and the correct status (e.g. 404) is preserved instead of collapsing to 400.
      */
-    @ExceptionHandler({RuntimeException.class, IllegalArgumentException.class, IllegalStateException.class})
-    public ResponseEntity<Object> handleCustomExceptions(
-            RuntimeException ex, WebRequest request) {
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Object> handleResponseStatusException(ResponseStatusException ex) {
+        HttpStatus status = HttpStatus.valueOf(ex.getStatusCode().value());
+        String message = ex.getReason() != null ? ex.getReason() : ex.getMessage();
 
-        ApiError apiError = new ApiError(
-                LocalDateTime.now(),
-                "Business Logic Error",
-                ex.getMessage(),
-                null,
-                request.getDescription(false));
+        ErrorResponse errorResponse = buildErrorResponse(status, status.name(), message, null);
 
-        return new ResponseEntity<>(apiError, HttpStatus.BAD_REQUEST);
+        return new ResponseEntity<>(errorResponse, status);
     }
 
     /**
-     * Handle all other exceptions
+     * Handle authentication failures (bad credentials, unknown user, etc.).
+     * Uses a generic message regardless of cause to avoid leaking whether a
+     * given username exists (user-enumeration protection).
+     */
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<Object> handleAuthenticationException(AuthenticationException ex) {
+        ErrorResponse errorResponse = buildErrorResponse(
+                HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Invalid username or password", null);
+
+        return new ResponseEntity<>(errorResponse, HttpStatus.UNAUTHORIZED);
+    }
+
+    /**
+     * Handle "not found" style lookups that don't carry their own HTTP status.
+     */
+    @ExceptionHandler(java.util.NoSuchElementException.class)
+    public ResponseEntity<Object> handleNotFound(java.util.NoSuchElementException ex) {
+        ErrorResponse errorResponse = buildErrorResponse(
+                HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage(), null);
+
+        return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
+    }
+
+    /**
+     * Handle common invalid-input business exceptions that don't carry their own HTTP status.
+     */
+    @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class})
+    public ResponseEntity<Object> handleBadRequestExceptions(RuntimeException ex) {
+        ErrorResponse errorResponse = buildErrorResponse(
+                HttpStatus.BAD_REQUEST, "BAD_REQUEST", ex.getMessage(), null);
+
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    }
+
+    /**
+     * Fallback for any other unhandled exception.
      */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Object> handleAllExceptions(
-            Exception ex, WebRequest request) {
+    public ResponseEntity<Object> handleAllExceptions(Exception ex, WebRequest request) {
+        log.error("Unhandled exception at [{}]: {}", request.getDescription(false), ex.getMessage(), ex);
 
-        log.error("Unhandled exception: {}", ex.getMessage(), ex);
+        ErrorResponse errorResponse = buildErrorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred", null);
 
-        ApiError apiError = new ApiError(
-                LocalDateTime.now(),
-                "Internal Server Error",
-                ex.getMessage(),
-                null,
-                request.getDescription(false));
-
-        return new ResponseEntity<>(apiError, HttpStatus.INTERNAL_SERVER_ERROR);
+        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
     /**
-     * Handle not found exceptions
+     * Ensures every exception delegated to the parent {@link ResponseEntityExceptionHandler}
+     * (malformed JSON, unsupported media type, missing params, method not supported, etc.)
+     * is rendered with the same {@link ErrorResponse} JSON shape instead of the framework's
+     * default ProblemDetail body.
      */
-    @ExceptionHandler({java.util.NoSuchElementException.class})
-    public ResponseEntity<Object> handleNotFound(
-            RuntimeException ex, WebRequest request) {
+    @Override
+    protected ResponseEntity<Object> handleExceptionInternal(
+            Exception ex,
+            Object body,
+            HttpHeaders headers,
+            HttpStatusCode statusCode,
+            WebRequest request) {
 
-        ApiError apiError = new ApiError(
-                LocalDateTime.now(),
-                "Resource Not Found",
-                ex.getMessage(),
-                null,
-                request.getDescription(false));
-
-        return new ResponseEntity<>(apiError, HttpStatus.NOT_FOUND);
+        Object responseBody = body;
+        if (!(responseBody instanceof ErrorResponse)) {
+            HttpStatus status = HttpStatus.valueOf(statusCode.value());
+            responseBody = buildErrorResponse(status, status.name(), ex.getMessage(), null);
+        }
+        return super.handleExceptionInternal(ex, responseBody, headers, statusCode, request);
     }
 
-    /**
-     * API Error response structure
-     */
-    @Getter
-    @Setter
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ApiError {
-        private LocalDateTime timestamp;
-        private String status;
-        private String message;
-        @Nullable
-        private Map<String, List<String>> errors;
-        private String path;
+    private ErrorResponse buildErrorResponse(HttpStatus status, String errorCode, String message, List<String> details) {
+        return ErrorResponse.builder()
+                .status(status.value())
+                .errorCode(errorCode)
+                .message(message)
+                .timestamp(LocalDateTime.now())
+                .details(details)
+                .build();
     }
 }

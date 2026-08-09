@@ -1,5 +1,6 @@
 package com.example.demo.repository;
 
+import com.example.demo.model.Role;
 import com.example.demo.model.User;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,7 +32,7 @@ class UserRepositoryTest {
         user.setPassword("password");
         user.setFirstName("Test");
         user.setLastName("User");
-        user.setRole("USER");
+        user.setRole(Role.USER);
 
         userRepository.save(user);
 
@@ -54,7 +55,7 @@ class UserRepositoryTest {
         user.setPassword("password");
         user.setFirstName("Test");
         user.setLastName("User");
-        user.setRole("USER");
+        user.setRole(Role.USER);
 
         userRepository.save(user);
 
@@ -77,7 +78,7 @@ class UserRepositoryTest {
         user.setPassword("password");
         user.setFirstName("Test");
         user.setLastName("User");
-        user.setRole("USER");
+        user.setRole(Role.USER);
 
         // Act
         User savedUser = userRepository.save(user);
@@ -99,7 +100,7 @@ class UserRepositoryTest {
         user.setPassword("password");
         user.setFirstName("Test");
         user.setLastName("User");
-        user.setRole("USER");
+        user.setRole(Role.USER);
 
         User saved = userRepository.save(user);
         Long userId = saved.getId();

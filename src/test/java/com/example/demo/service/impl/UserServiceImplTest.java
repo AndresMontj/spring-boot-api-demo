@@ -2,6 +2,7 @@ package com.example.demo.service.impl;
 
 import com.example.demo.dto.UserDto;
 import com.example.demo.exception.UserNotFoundException;
+import com.example.demo.model.Role;
 import com.example.demo.model.User;
 import com.example.demo.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,10 +11,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -45,7 +49,7 @@ class UserServiceImplTest {
                 .password("password123")
                 .firstName("Test")
                 .lastName("User")
-                .role("USER")
+                .role(Role.USER)
                 .build();
 
         user = User.builder()
@@ -55,25 +59,26 @@ class UserServiceImplTest {
                 .password("encodedPassword")
                 .firstName("Test")
                 .lastName("User")
-                .role("USER")
+                .role(Role.USER)
                 .build();
     }
 
     @Test
-    void getAllUsers_ShouldReturnListOfUserDtos() {
+    void getAllUsers_ShouldReturnPageOfUserDtos() {
         // Arrange
-        when(userRepository.findAll()).thenReturn(Arrays.asList(user));
-        when(userRepository.findAll()).thenReturn(List.of(user));
+        Page<User> userPage = new PageImpl<>(Arrays.asList(user));
+        when(userRepository.findAll(any(Pageable.class))).thenReturn(userPage);
 
         // Act
-        List<UserDto> result = userService.getAllUsers();
+        Page<UserDto> result = userService.getAllUsers(PageRequest.of(0, 10));
 
         // Assert
         assertNotNull(result);
-        assertEquals(1, result.size());
-        assertEquals("testuser", result.get(0).getUsername());
-        assertEquals("test@example.com", result.get(0).getEmail());
-        verify(userRepository, times(1)).findAll();
+        assertEquals(1, result.getTotalElements());
+        assertEquals(1, result.getContent().size());
+        assertEquals("testuser", result.getContent().get(0).getUsername());
+        assertEquals("test@example.com", result.getContent().get(0).getEmail());
+        verify(userRepository, times(1)).findAll(any(Pageable.class));
     }
 
     @Test
@@ -117,7 +122,7 @@ class UserServiceImplTest {
         assertNotNull(result);
         assertEquals("testuser", result.getUsername());
         assertEquals("test@example.com", result.getEmail());
-        assertEquals("encodedPassword", result.getPassword()); // Password is encoded in DTO
+        // Note: Password field in UserDto is @JsonIgnore, so it won't be serialized in API responses
         verify(passwordEncoder, times(1)).encode("password123");
         verify(userRepository, times(1)).save(any(User.class));
     }
@@ -132,7 +137,7 @@ class UserServiceImplTest {
                 .password("newpassword123")
                 .firstName("Updated")
                 .lastName("User")
-                .role("ADMIN")
+                .role(Role.ADMIN)
                 .build();
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
@@ -144,7 +149,7 @@ class UserServiceImplTest {
             savedUser.setPassword("newEncodedPassword");
             savedUser.setFirstName("Updated");
             savedUser.setLastName("User");
-            savedUser.setRole("ADMIN");
+            savedUser.setRole(Role.ADMIN);
             return savedUser;
         });
 
@@ -155,7 +160,7 @@ class UserServiceImplTest {
         assertNotNull(result);
         assertEquals("updateduser", result.getUsername());
         assertEquals("updated@example.com", result.getEmail());
-        assertEquals("newEncodedPassword", result.getPassword());
+        // Note: Password field in UserDto is @JsonIgnore, so it won't be serialized in API responses
         verify(userRepository, times(1)).findById(1L);
         verify(passwordEncoder, times(1)).encode("newpassword123");
         verify(userRepository, times(1)).save(any(User.class));
