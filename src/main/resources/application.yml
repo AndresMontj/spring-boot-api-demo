@@ -1,5 +1,4 @@
 # Default configuration (applies to all profiles, can be overridden)
-debug: true
 spring:
   application:
     name: spring-boot-api-demo
@@ -12,6 +11,14 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password:
+    # HikariCP connection pool configuration
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 30000
+      pool-name: SpringBootHikariCP
+      max-lifetime: 1800000
+      connection-timeout: 30000
     # For PostgreSQL (uncomment and configure as needed):
     # url: jdbc:postgresql://localhost:5432/demo_db
     # driver-class-name: org.postgresql.Driver
@@ -147,17 +154,14 @@ jwt:
   secret: ${JWT_SECRET:VbUY8PR/pZFOIHRLd0Fvm2OlmmLGgPN9MjtdBM/mJls=}
   expiration: ${JWT_EXPIRATION:86400000} # 24 hours in milliseconds
 
-# Logging Configuration
+# Logging Configuration (conservative defaults; verbose levels are opted into by the dev profile below)
 logging:
   level:
     root: INFO
-    com.example.demo: DEBUG
+    com.example.demo: INFO
     org.springframework.web: INFO
     org.hibernate: INFO
-    org.hibernate.type: TRACE  # For SQL parameter logging (use cautiously in prod)
-    org.springframework.security: DEBUG  # Enable Spring Security logging
-    org.springframework.security.authentication: TRACE
-    org.springframework.security.web: DEBUG
+    org.springframework.security: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n"
@@ -228,18 +232,7 @@ spring:
     cookie:
       http-only: true
       secure: true
-  # Increase resilience timeouts for production
-  resilience4j:
-    circuitbreaker:
-      instances:
-        externalService:
-          waitDurationInOpenState: 30s  # Increased from 10s
-          permittedNumberOfCallsInHalfOpenState: 5  # Increased from 3
-    ratelimiter:
-      instances:
-        externalService:
-          limitForPeriod: 10  # Increased from 2
-          limitRefreshPeriod: 60s  # Increased from 1s
+  # Security configuration
   security:
     oauth2:
       client:
@@ -268,8 +261,32 @@ spring:
         provider:
           okta:
             issuer-uri: ${OKTA_ISSUER_URI:https://dev-123456.okta.com/oauth2/default}
+# No fallback here: fail fast on startup if JWT_SECRET isn't provided in production
+jwt:
+  secret: ${JWT_SECRET}
+# Disable interactive API docs/UI in production
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+# Increase resilience timeouts for production
+resilience4j:
+  circuitbreaker:
+    instances:
+      externalService:
+        waitDurationInOpenState: 30s  # Increased from 10s
+        permittedNumberOfCallsInHalfOpenState: 5  # Increased from 3
+  ratelimiter:
+    instances:
+      externalService:
+        limitForPeriod: 10  # Increased from 2
+        limitRefreshPeriod: 60s  # Increased from 1s
 
 # Development Configuration
+#
+# Verbose/security-sensitive log levels are intentionally only enabled here (not in the default
+# or prod blocks), since TRACE-level auth logging can leak credentials/tokens into log output.
 ---
 spring:
   config:
@@ -281,11 +298,6 @@ spring:
       enabled: true
     restart:
       enabled: true
-  # More verbose logging in development
-  logging:
-    level:
-      org.springframework.web: DEBUG
-      org.hibernate.type: TRACE
   # OAuth2 client settings for development (can be enabled by setting spring.security.oauth2.client.enabled=true)
   security:
     oauth2:
@@ -315,3 +327,9 @@ spring:
         provider:
           okta:
             issuer-uri: ${OKTA_ISSUER_URI:https://dev-123456.okta.com/oauth2/default}
+logging:
+  level:
+    com.example.demo: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.type: TRACE  # SQL parameter logging - dev only, never enable in prod
+    org.springframework.security: DEBUG

@@ -6,27 +6,35 @@ import com.example.demo.model.User;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheConfig;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
-import java.util.List;
-import java.util.stream.Collectors;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@CacheConfig(cacheNames = "users")
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Override
-    public List<UserDto> getAllUsers() {
-        return userRepository.findAll().stream()
-                .map(this::convertToDto)
-                .collect(Collectors.toList());
+    @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "users", key = "#pageable.pageNumber + '_' + #pageable.pageSize + '_' + #pageable.sort")
+    public Page<UserDto> getAllUsers(Pageable pageable) {
+        return userRepository.findAll(pageable)
+                .map(this::convertToDto);
     }
 
     @Override
+    @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "users", key = "#id")
     public UserDto getUserById(Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new UserNotFoundException(id));
@@ -34,6 +42,8 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
+    @CachePut(cacheNames = "users", key = "#result.id")
     public UserDto createUser(UserDto userDto) {
         User user = convertToEntity(userDto);
         // Encode password before saving
@@ -43,6 +53,8 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
+    @CachePut(cacheNames = "users", key = "#id")
     public UserDto updateUser(Long id, UserDto userDto) {
         User existingUser = userRepository.findById(id)
                 .orElseThrow(() -> new UserNotFoundException(id));
@@ -62,6 +74,8 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
+    @CacheEvict(cacheNames = "users", key = "#id")
     public void deleteUser(Long id) {
         if (!userRepository.existsById(id)) {
             throw new UserNotFoundException(id);
@@ -74,7 +88,6 @@ public class UserServiceImpl implements UserService {
                 .id(user.getId())
                 .username(user.getUsername())
                 .email(user.getEmail())
-                .password(user.getPassword()) // Note: This returns encoded password
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
                 .role(user.getRole())
@@ -85,7 +98,7 @@ public class UserServiceImpl implements UserService {
         return User.builder()
                 .username(userDto.getUsername())
                 .email(userDto.getEmail())
-                .password(userDto.getPassword()) // Will be encoded in createUser/updateUser
+                .password(userDto.getPassword())
                 .firstName(userDto.getFirstName())
                 .lastName(userDto.getLastName())
                 .role(userDto.getRole())
